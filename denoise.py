@@ -5,6 +5,9 @@ from time import time
 
 from SN import psnr
 
+from PIL import Image, ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+Image.MAX_IMAGE_PIXELS = None
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
@@ -88,24 +91,50 @@ def AddNoise(src_img, mode):
 
 if __name__ == '__main__':
 
-    origin_dir = 'CBSD68-dataset/original_png'
+    # origin_dir = 'CBSD68-dataset/original_png'
+    # noisy_dir = 'CBSD68-dataset/noisy50'
 
-    noisy_dir = 'CBSD68-dataset/noisy50'
+    # for file in os.listdir(origin_dir):
+    #     print(file)
+    #     origin_img = cv2.imread(os.path.join(origin_dir, file))
+    #     noisy_img = cv2.imread(os.path.join(noisy_dir, file))
 
-    for file in os.listdir(origin_dir):
+    #     noise_img = AddNoise(origin_img, mode='gauss')
+
+    #     std = np.std(noisy_img.astype(int) - origin_img.astype(int))
+    #     print("std: ", std)
+
+    #     denoise_img = Denoise(noisy_img, mode='gauss', kernel_size=5, std=0, times=1)
+
+    #     PSNR1 = psnr(origin_img, noisy_img)
+    #     PSNR2 = psnr(origin_img, denoise_img)
+    #     print("before denoising: ", PSNR1, "       After denoising: ", PSNR2)
+
+    #     # cv2.imwrite(file, noise_img)
+
+
+
+
+    dir = "Dataset/1G_img/patches"
+    for file in os.listdir(dir):
+        if not "src" in file:
+            continue
+        
         print(file)
-        origin_img = cv2.imread(os.path.join(origin_dir, file))
-        noisy_img = cv2.imread(os.path.join(noisy_dir, file))
 
-        noise_img = AddNoise(origin_img, mode='gauss')
+        src_img = cv2.imread(os.path.join(dir, file), cv2.IMREAD_GRAYSCALE)
+        print(src_img.shape)
+        noise_img = cv2.imread(os.path.join(dir, file.replace("src", "noise")), cv2.IMREAD_GRAYSCALE)
+        print(noise_img.shape)
 
-        std = np.std(noisy_img.astype(int) - origin_img.astype(int))
-        print("std: ", std)
 
-        denoise_img = Denoise(noisy_img, mode='gauss', kernel_size=5, std=0, times=1)
+        denoise_img = Denoise(noise_img, mode='median', kernel_size=3, std=0, times=1)
+        # denoise_img = noise_img + 40
+        print("src_img: ", np.mean(src_img), "  noise_img: ", np.mean(noise_img), " denoise_img: ", np.mean(denoise_img) )
+        print(denoise_img.shape)
 
-        PSNR1 = psnr(origin_img, noisy_img)
-        PSNR2 = psnr(origin_img, denoise_img)
+        PSNR1 = psnr(src_img, noise_img)
+        PSNR2 = psnr(src_img, denoise_img)
+
         print("before denoising: ", PSNR1, "       After denoising: ", PSNR2)
-
-        # cv2.imwrite(file, noise_img)
+        cv2.imwrite(os.path.join(dir, file.replace("src", "denoise")), denoise_img)

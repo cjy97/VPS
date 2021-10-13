@@ -2,6 +2,7 @@ import cv2
 import os
 import numpy as np
 
+# 用于repeat扩充出高分辨率图像（暂时弃用）
 if __name__ == '__main__':
 
     if not os.path.exists('src_imgs'):
