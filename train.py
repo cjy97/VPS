@@ -5,15 +5,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from utils import AverageMeter
-from dataset.loader import Real, Syn
+from dataset.loader import Real, Syn, My_Dataset
 from model.cbdnet import Network, fixed_loss
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "2, 3"
 
 parser = argparse.ArgumentParser(description = 'Train')
+# parser.add_argument('--bs', default=32, type=int, help='batch size')		# batch size值不可大于train_dataset中的列表长度，否则无法抽样
 parser.add_argument('--bs', default=32, type=int, help='batch size')
-parser.add_argument('--ps', default=128, type=int, help='patch size')
+# parser.add_argument('--ps', default=128, type=int, help='patch size')
+parser.add_argument('--ps', default=320, type=int, help='patch size')
 parser.add_argument('--lr', default=2e-4, type=float, help='learning rate')
-parser.add_argument('--epochs', default=5000, type=int, help='sum of epochs')
+# parser.add_argument('--epochs', default=5000, type=int, help='sum of epochs')
+parser.add_argument('--epochs', default=20, type=int, help='sum of epochs')
 args = parser.parse_args()
 
 
@@ -21,15 +25,23 @@ def train(train_loader, model, criterion, optimizer):
 	losses = AverageMeter()
 	model.train()
 
+	sample_num = 0
 	for (noise_img, clean_img, sigma_img, flag) in train_loader:
+		
+		if sample_num >= 100:	# 每轮只抽样100次
+			break
+		sample_num += 1
+
 		input_var = noise_img.cuda()
 		target_var = clean_img.cuda()
 		sigma_var = sigma_img.cuda()
 		flag_var = flag.cuda()
 
 		noise_level_est, output = model(input_var)
+		# print("output: ", output.size())	# [bs, 1, 128, 128]
 
 		loss = criterion(output, target_var, noise_level_est, sigma_var, flag_var)
+		print("loss: ", loss)
 		losses.update(loss.item())
 
 		optimizer.zero_grad()
@@ -46,10 +58,10 @@ if __name__ == '__main__':
 	model.cuda()
 	model = nn.DataParallel(model)
 
-	if os.path.exists(os.path.join(save_dir, 'checkpoint.pth.tar')):
+	if os.path.exists(os.path.join(save_dir, 'my_checkpoint.pth.tar')):
 		# load existing model
-		model_info = torch.load(os.path.join(save_dir, 'checkpoint.pth.tar'))
-		print('==> loading existing model:', os.path.join(save_dir, 'checkpoint.pth.tar'))
+		model_info = torch.load(os.path.join(save_dir, 'my_checkpoint.pth.tar'))
+		print('==> loading existing model:', os.path.join(save_dir, 'my_checkpoint.pth.tar'))
 		model.load_state_dict(model_info['state_dict'])
 		optimizer = torch.optim.Adam(model.parameters())
 		optimizer.load_state_dict(model_info['optimizer'])
@@ -67,11 +79,12 @@ if __name__ == '__main__':
 	criterion = fixed_loss()
 	criterion.cuda()
 
-	train_dataset = Real('./data/SIDD_train/', 320, args.ps) + Syn('./data/Syn_train/', 100, args.ps)
+	train_dataset = My_Dataset('./Dataset/1G_img/patches', args.ps) #Real('./data/SIDD_train/', 320, args.ps) + Syn('./data/Syn_train/', 100, args.ps)
 	train_loader = torch.utils.data.DataLoader(
 		train_dataset, batch_size=args.bs, shuffle=True, num_workers=8, pin_memory=True, drop_last=True)
 
 	for epoch in range(cur_epoch, args.epochs + 1):
+		print("epoch: ", epoch)
 		loss = train(train_loader, model, criterion, optimizer)
 		scheduler.step()
 
@@ -80,7 +93,7 @@ if __name__ == '__main__':
 			'state_dict': model.state_dict(),
 			'optimizer' : optimizer.state_dict(),
 			'scheduler' : scheduler.state_dict()}, 
-			os.path.join(save_dir, 'checkpoint.pth.tar'))
+			os.path.join(save_dir, 'my_checkpoint.pth.tar'))
 
 		print('Epoch [{0}]\t'
 			'lr: {lr:.6f}\t'

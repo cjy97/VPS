@@ -113,28 +113,34 @@ if __name__ == '__main__':
     #     # cv2.imwrite(file, noise_img)
 
 
+    dir = "Dataset/1G_img/patches_test"
 
+    sum_psnr1 = 0.0
+    sum_psnr2 = 0.0
 
-    dir = "Dataset/1G_img/patches"
+    num = 0
     for file in os.listdir(dir):
         if not "src" in file:
             continue
         
-        print(file)
+        print("num: ", num)
+        num += 1
 
         src_img = cv2.imread(os.path.join(dir, file), cv2.IMREAD_GRAYSCALE)
-        print(src_img.shape)
         noise_img = cv2.imread(os.path.join(dir, file.replace("src", "noise")), cv2.IMREAD_GRAYSCALE)
-        print(noise_img.shape)
-
 
         denoise_img = Denoise(noise_img, mode='median', kernel_size=3, std=0, times=1)
         # denoise_img = noise_img + 40
-        print("src_img: ", np.mean(src_img), "  noise_img: ", np.mean(noise_img), " denoise_img: ", np.mean(denoise_img) )
-        print(denoise_img.shape)
 
         PSNR1 = psnr(src_img, noise_img)
         PSNR2 = psnr(src_img, denoise_img)
 
         print("before denoising: ", PSNR1, "       After denoising: ", PSNR2)
-        cv2.imwrite(os.path.join(dir, file.replace("src", "denoise")), denoise_img)
+
+        # cv2.imwrite(os.path.join(dir, file.replace("src", "denoise2")), denoise_img)
+
+        sum_psnr1 += PSNR1
+        sum_psnr2 += PSNR2
+    
+    print("avg PSNR before denoising: ", sum_psnr1 / num)
+    print("avg PSNR after denoising: ", sum_psnr2 / num)

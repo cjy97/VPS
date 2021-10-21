@@ -3,4 +3,10 @@ Dataset/
 
 # model files
 save_model/
+my_models/
 
+__pycache__/
+model/__pycache__/
+utils/__pycache__/
+
+*.pyc
