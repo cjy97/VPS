@@ -30,9 +30,9 @@ def load_model():
 
     model.eval()
 
-    if os.path.exists(os.path.join(save_dir, 'checkpoint.pth.tar')):
+    if os.path.exists(os.path.join(save_dir, 'checkpoint3.pth.tar')):
         # load existing model
-        model_info = torch.load(os.path.join(save_dir, 'checkpoint.pth.tar'))
+        model_info = torch.load(os.path.join(save_dir, 'checkpoint3.pth.tar'))
         model.load_state_dict(model_info['state_dict'])
     else:
         print('Error: no trained model detected!')
@@ -146,13 +146,13 @@ def random_crop_test(patch_size, times):
     
     model = load_model()
     
-    noise_path = "Dataset/1G_img/100ms曝光.bmp"
+    noise_path = "Dataset/1G_img/500ms曝光.bmp"
     noise_image = Image.open(noise_path)
     noise_image = np.array(noise_image)
     noise_image = noise_image[:,:,np.newaxis]
     print(noise_image.shape)
 
-    src_path = "Dataset/1G_img/500ms曝光.bmp"
+    src_path = "Dataset/1G_img/100ms曝光.bmp"
     src_image = Image.open(src_path)
     src_image = np.array(src_image)
     src_image = src_image[:,:,np.newaxis]
@@ -272,7 +272,7 @@ def denoise_1G_img():
     cv2.imwrite(os.path.join("Dataset/1G_img/", "crop_scaleAbs.bmp"), cv2.resize(denoise_img, (320,320)))
 
 # 将1G特大分辨率图像分块，分别通过深度模型降噪，转成numpy数组再重新拼合
-def crop_denoise_1G_img(noise_path, patch_size):
+def crop_denoise_1G_img(noise_path, src_path, patch_size):
 
     model = load_model()
 
@@ -281,13 +281,21 @@ def crop_denoise_1G_img(noise_path, patch_size):
     noise_image = noise_image[:,:,np.newaxis]
     noise_image = noise_image[:,:,::-1] / 255.0
     noise_image = np.array(noise_image).astype('float32')
-
-    H, W, _ = noise_image.shape
     print(noise_image.shape)
 
+    src_image = Image.open(src_path)
+    src_image = np.array(src_image)
+    src_image = src_image[:,:,np.newaxis]
+    src_image = src_image[:,:,::-1] / 255.0
+    src_image = np.array(src_image).astype('float32')
+    print(src_image.shape)
+
+    H, W, _ = noise_image.shape
     Y = H // patch_size
     X = W // patch_size
     print("X, Y: ", X, Y)
+
+    start = time.time()
 
     row = []
     for y in range(Y):
@@ -309,10 +317,20 @@ def crop_denoise_1G_img(noise_path, patch_size):
         col = np.concatenate(col, axis=1)
         row.append(col)
     
-    img = np.concatenate(row, axis=0)
-    print("img: ", img.shape)
+    denoise_img = np.concatenate(row, axis=0)
+    print("denoise_img: ", denoise_img.shape)
 
-    cv2.imwrite("crop_denoise.bmp", img)
+    end = time.time()
+    print("Processing time: {}s".format(end-start))
+
+    cv2.imwrite("crop_denoise.bmp", denoise_img)
+
+    src_image = np.uint8(np.round(np.clip(src_image, 0, 1) * 255.))[: ,: ,::-1]
+    noise_image = np.uint8(np.round(np.clip(noise_image, 0, 1) * 255.))[: ,: ,::-1]
+
+    PSNR1 = psnr(src_image, noise_image)
+    PSNR2 = psnr(src_image, denoise_img)
+    print("before denoising: ", PSNR1, "       After denoising: ", PSNR2)
     
 
 if __name__ == '__main__':
@@ -320,10 +338,10 @@ if __name__ == '__main__':
     # predict(test_dir)   # 调用CBDNet模型，对测试目录下的noise图像进行降噪，将所得denoise图像保存在同目录下
     # denoise_black_points(test_dir)
     # cal_psnr(test_dir)  # 对测试数据，计算降噪前后的平均psnr指标
-    # random_crop_test(patch_size=2000, times=100)    # 在.246服务器上（1080ti，单卡11G显存），CBDNet单次能处理的图像尺寸上限约2000^2
+    # random_crop_test(patch_size=3200, times=100)    # 在.246服务器上（1080ti，单卡11G显存），CBDNet单次能处理的图像尺寸上限约2000^2
 
-    denoise_1G_img()
-    # crop_denoise_1G_img("Dataset/1G_img/100ms曝光.bmp", patch_size=2000)
+    # denoise_1G_img()
+    crop_denoise_1G_img(noise_path="Dataset/1G_img/500ms曝光.bmp", src_path="Dataset/1G_img/100ms曝光.bmp", patch_size=3200)
 
     # denoise_path = os.path.join(test_dir, "denoise_0_18.bmp")
     # denoise_img = Image.open(denoise_path)
