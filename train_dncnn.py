@@ -2,19 +2,21 @@ import os
 import math
 import argparse
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import torch
 import numpy as np
+import cv2
 
 from utils import read_img, chw_to_hwc, hwc_to_chw
 from model.dncnn import DnCNN
 from dataset.loader import My_Dataset
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 parser = argparse.ArgumentParser(description="DnCNN")
 # parser.add_argument("--preprocess", type=bool, default=False, help='run prepare_data or not')
-parser.add_argument("--batchSize", type=int, default=32, help="Training batch size")
+parser.add_argument("--batchSize", type=int, default=16, help="Training batch size")
 parser.add_argument("--num_of_layers", type=int, default=20, help="Number of total layers")
 parser.add_argument("--epochs", type=int, default=50, help="Number of training epochs")
 parser.add_argument("--milestone", type=int, default=30, help="When to decay learning rate; should be less than epochs")
@@ -136,7 +138,7 @@ def eval_(test_dir):
 
     num = 0
     for file in os.listdir(test_dir):
-        if "src" in file:   # 只读取测试目录下的noise图像
+        if not "noise_" in file:   # 只读取测试目录下的noise图像
             continue
     
         print("num: ", num)
@@ -150,11 +152,27 @@ def eval_(test_dir):
         input_var =  torch.from_numpy(hwc_to_chw(input_image)).unsqueeze(0).cuda()
 
         with torch.no_grad():
-            noise = model()
+            noise_var = model(input_var)
+
+            output = torch.clamp(input_var - noise_var, 0., 1.)
+
+            output_image = chw_to_hwc(output[0,...].cpu().numpy())
+            output_image = np.uint8(np.round(np.clip(output_image, 0, 1) * 255.))[: ,: ,::-1]
+
+            src_image = read_img(file_path.replace("noise", "src"))
+            src_image = np.mean(src_image, axis=2)[:,:,np.newaxis]
+            src_var = torch.from_numpy(hwc_to_chw(src_image)).unsqueeze(0).cuda()
+
+            mse = F.mse_loss(output, src_var)
+            print("MSE: ", mse)
+
+            cv2.imwrite(os.path.join(test_dir, file.replace("noise", "denoise_dncnn")), output_image)
         
         # to continue
 
 if __name__ == '__main__':
-    train_()
+    # train_()
 
-    eval_()
+
+    test_dir = "Dataset/1G_img/patches_test/"
+    eval_(test_dir)

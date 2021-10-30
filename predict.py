@@ -6,6 +6,7 @@ import argparse
 import cv2
 
 from model.cbdnet import Network
+from model.dncnn import DnCNN
 from utils import read_img, chw_to_hwc, hwc_to_chw
 
 from read_bmp import ReadBMPFile
@@ -19,30 +20,44 @@ from SN import psnr
 import random
 import torch.nn.functional as F
 
-os.environ["CUDA_VISIBLE_DEVICES"] = '0, 1, 2, 3'
+os.environ["CUDA_VISIBLE_DEVICES"] = '3'
 
-def load_model():
+def load_model(model_type):
     save_dir = './save_model/'  # 预训练模型保存路径
 
-    model = Network()
+    if model_type == "CBDNet":
+        model = Network()
+    elif model_type == "DnCNN":
+        model = DnCNN(channels=1, num_of_layers = 20)
+
+
     model.cuda()
     model = nn.DataParallel(model)
 
     model.eval()
 
-    if os.path.exists(os.path.join(save_dir, 'checkpoint3.pth.tar')):
-        # load existing model
+    # load existing model
+    if model_type == "CBDNet":
         model_info = torch.load(os.path.join(save_dir, 'checkpoint3.pth.tar'))
         model.load_state_dict(model_info['state_dict'])
-    else:
-        print('Error: no trained model detected!')
-        exit(1)
-    
+    elif model_type == "DnCNN":
+        model_info = torch.load(os.path.join(save_dir, 'my_DnCNN.pth.tar'))
+        model.load_state_dict(model_info['state_dict'])
+
     return model
 
-def predict(test_dir):
+def predict_(model, input_var, model_type):
+    if model_type == "CBDNet":
+        _, output = model(input_var)
+    elif model_type == "DnCNN":
+        noise_var = model(input_var)
+        output = torch.clamp(input_var - noise_var, 0., 1.)
+
+    return output
+
+def predict(test_dir, model_type):
     
-    model = load_model()
+    model = load_model(model_type)
 
     num = 0
     for file in os.listdir(test_dir):
@@ -58,9 +73,10 @@ def predict(test_dir):
         input_image = read_img(file_path)
         input_image = np.mean(input_image, axis=2)[:,:,np.newaxis]
         input_var =  torch.from_numpy(hwc_to_chw(input_image)).unsqueeze(0).cuda()
+
         with torch.no_grad():
-            _, output = model(input_var)
-        
+            output = predict_(model, input_var, model_type)
+
 
         src_image = read_img(file_path.replace("noise", "src"))
         src_image = np.mean(src_image, axis=2)[:,:,np.newaxis]
@@ -122,29 +138,29 @@ def cal_psnr(test_dir):
         # print(src_img.shape)
         noise_img = cv2.imread(os.path.join(test_dir, file.replace("src", "noise")), cv2.IMREAD_GRAYSCALE)
         # print(noise_img.shape)
-        denoise_img = cv2.imread(os.path.join(test_dir, file.replace("src", "denoise")), cv2.IMREAD_GRAYSCALE)
+        denoise_img = cv2.imread(os.path.join(test_dir, file.replace("src", "denoise_dncnn")), cv2.IMREAD_GRAYSCALE)
         # print(denoise_img.shape)
-        denoise2_img = cv2.imread(os.path.join(test_dir, file.replace("src", "denoise2")), cv2.IMREAD_GRAYSCALE)
+        # denoise2_img = cv2.imread(os.path.join(test_dir, file.replace("src", "denoise2")), cv2.IMREAD_GRAYSCALE)
 
         PSNR1 = psnr(src_img, noise_img)
         PSNR2 = psnr(src_img, denoise_img)
-        PSNR3 = psnr(src_img, denoise2_img)
+        # PSNR3 = psnr(src_img, denoise2_img)
 
-        print("before denoising: ", PSNR1, "       After denoising: ", PSNR2, "     After denoising blackpoints: ", PSNR3)
+        print("before denoising: ", PSNR1, "       After denoising: ", PSNR2)#, "     After denoising blackpoints: ", PSNR3)
 
         sum_psnr1 += PSNR1
         sum_psnr2 += PSNR2
-        sum_psnr3 += PSNR3
+        # sum_psnr3 += PSNR3
     
     print("avg PSNR before denoising: ", sum_psnr1 / num)
     print("avg PSNR after denoising: ", sum_psnr2 / num)
-    print("avg PSNR after denoising black points: ", sum_psnr3 / num)
+    # print("avg PSNR after denoising black points: ", sum_psnr3 / num)
 
 
 # 从高分辨率图像上随机裁剪出较大的patch对，测试去噪性能
-def random_crop_test(patch_size, times): 
+def random_crop_test(patch_size, times, model_type): 
     
-    model = load_model()
+    model = load_model(model_type)
     
     noise_path = "Dataset/1G_img/500ms曝光.bmp"
     noise_image = Image.open(noise_path)
@@ -158,12 +174,13 @@ def random_crop_test(patch_size, times):
     src_image = src_image[:,:,np.newaxis]
     print(src_image.shape)
 
+    H, W, _ = noise_image.shape
 
     sum_psnr1 = 0.0
     sum_psnr2 = 0.0
     for _ in range(times):
-        x = random.randint(0, 3200*8)
-        y = random.randint(0, 3200*8)
+        x = random.randint(0, H - patch_size)
+        y = random.randint(0, W - patch_size)
         print("x: ", x, "   y: ", y)
 
         noise_patch_ = noise_image[x:x+patch_size, y:y+patch_size]   # [patch_size, patch_size, 1]
@@ -172,7 +189,7 @@ def random_crop_test(patch_size, times):
         noise_var = torch.from_numpy(hwc_to_chw(noise_patch)).unsqueeze(0).cuda()
 
         with torch.no_grad():
-            _, output = model(noise_var)
+            output = predict_(model, noise_var, model_type)
 
         output_patch = chw_to_hwc(output[0,...].cpu().numpy())
         output_patch = np.uint8(np.round(np.clip(output_patch, 0, 1) * 255.))[: ,: ,::-1]
@@ -272,9 +289,9 @@ def denoise_1G_img():
     cv2.imwrite(os.path.join("Dataset/1G_img/", "crop_scaleAbs.bmp"), cv2.resize(denoise_img, (320,320)))
 
 # 将1G特大分辨率图像分块，分别通过深度模型降噪，转成numpy数组再重新拼合
-def crop_denoise_1G_img(noise_path, src_path, patch_size):
+def crop_denoise_1G_img(noise_path, src_path, patch_size, model_type):
 
-    model = load_model()
+    model = load_model(model_type)
 
     noise_image = Image.open(noise_path)
     noise_image = np.array(noise_image)
@@ -307,7 +324,7 @@ def crop_denoise_1G_img(noise_path, src_path, patch_size):
             patch_var = torch.from_numpy(hwc_to_chw(patch)).unsqueeze(0).cuda()
 
             with torch.no_grad():
-                _, output = model(patch_var)
+                output = predict_(model, patch_var, model_type)
 
             patch = chw_to_hwc(output[0,...].cpu().numpy())
             patch = np.uint8(np.round(np.clip(patch, 0, 1) * 255.))[: ,: ,::-1]
@@ -335,13 +352,13 @@ def crop_denoise_1G_img(noise_path, src_path, patch_size):
 
 if __name__ == '__main__':
     test_dir = "Dataset/1G_img/patches_test/"
-    # predict(test_dir)   # 调用CBDNet模型，对测试目录下的noise图像进行降噪，将所得denoise图像保存在同目录下
+    # predict(test_dir, model_type="DnCNN")   # 调用CBDNet模型，对测试目录下的noise图像进行降噪，将所得denoise图像保存在同目录下
     # denoise_black_points(test_dir)
     # cal_psnr(test_dir)  # 对测试数据，计算降噪前后的平均psnr指标
-    # random_crop_test(patch_size=3200, times=100)    # 在.246服务器上（1080ti，单卡11G显存），CBDNet单次能处理的图像尺寸上限约2000^2
+    random_crop_test(patch_size=3200, times=100, model_type="DnCNN")    # 在.246服务器上（1080ti，单卡11G显存），CBDNet单次能处理的图像尺寸上限约2000^2
 
     # denoise_1G_img()
-    crop_denoise_1G_img(noise_path="Dataset/1G_img/500ms曝光.bmp", src_path="Dataset/1G_img/100ms曝光.bmp", patch_size=3200)
+    # crop_denoise_1G_img(noise_path="Dataset/1G_img/500ms曝光.bmp", src_path="Dataset/1G_img/100ms曝光.bmp", patch_size=4000, model_type="DnCNN")
 
     # denoise_path = os.path.join(test_dir, "denoise_0_18.bmp")
     # denoise_img = Image.open(denoise_path)
