@@ -55,6 +55,7 @@ def predict_(model, input_var, model_type):
 
     return output
 
+# 对测试集中的1000组图像patch对运行降噪
 def predict(test_dir, model_type):
     
     model = load_model(model_type)
@@ -288,7 +289,7 @@ def denoise_1G_img():
 
     cv2.imwrite(os.path.join("Dataset/1G_img/", "crop_scaleAbs.bmp"), cv2.resize(denoise_img, (320,320)))
 
-# 将1G特大分辨率图像分块，分别通过深度模型降噪，转成numpy数组再重新拼合
+# 将1G特大分辨率图像分块，分别通过深度模型降噪
 def crop_denoise_1G_img(noise_path, src_path, patch_size, model_type):
 
     model = load_model(model_type)
@@ -340,7 +341,7 @@ def crop_denoise_1G_img(noise_path, src_path, patch_size, model_type):
     end = time.time()
     print("Processing time: {}s".format(end-start))
 
-    cv2.imwrite("crop_denoise.bmp", denoise_img)
+    cv2.imwrite("./Dataset/1G_img/crop_denoise.bmp", denoise_img)
 
     src_image = np.uint8(np.round(np.clip(src_image, 0, 1) * 255.))[: ,: ,::-1]
     noise_image = np.uint8(np.round(np.clip(noise_image, 0, 1) * 255.))[: ,: ,::-1]
@@ -351,14 +352,14 @@ def crop_denoise_1G_img(noise_path, src_path, patch_size, model_type):
     
 
 if __name__ == '__main__':
-    test_dir = "Dataset/1G_img/patches_test/"
+    # test_dir = "Dataset/1G_img/patches_test/"
     # predict(test_dir, model_type="DnCNN")   # 调用CBDNet模型，对测试目录下的noise图像进行降噪，将所得denoise图像保存在同目录下
     # denoise_black_points(test_dir)
     # cal_psnr(test_dir)  # 对测试数据，计算降噪前后的平均psnr指标
-    random_crop_test(patch_size=3200, times=100, model_type="DnCNN")    # 在.246服务器上（1080ti，单卡11G显存），CBDNet单次能处理的图像尺寸上限约2000^2
+    # random_crop_test(patch_size=3200, times=100, model_type="DnCNN")    # 在.246服务器上（1080ti，单卡11G显存），CBDNet单次能处理的图像尺寸上限约2000^2
 
     # denoise_1G_img()
-    # crop_denoise_1G_img(noise_path="Dataset/1G_img/500ms曝光.bmp", src_path="Dataset/1G_img/100ms曝光.bmp", patch_size=4000, model_type="DnCNN")
+    crop_denoise_1G_img(noise_path="./Dataset/1G_img/500ms曝光.bmp", src_path="./Dataset/1G_img/100ms曝光.bmp", patch_size=4000, model_type="DnCNN")
 
     # denoise_path = os.path.join(test_dir, "denoise_0_18.bmp")
     # denoise_img = Image.open(denoise_path)

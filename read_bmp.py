@@ -1,7 +1,7 @@
 from struct import unpack
 
 
-# 直接读取bmp格式图像文件（暂时没用了）
+# 直接读取bmp格式图像文件（暂时弃用）
 class ReadBMPFile :
     def __init__(self, filePath) :
         file = open(filePath, "rb")

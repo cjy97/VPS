@@ -171,8 +171,8 @@ def eval_(test_dir):
         # to continue
 
 if __name__ == '__main__':
-    # train_()
+    train_()
 
 
-    test_dir = "Dataset/1G_img/patches_test/"
-    eval_(test_dir)
+    # test_dir = "Dataset/1G_img/patches_test/"
+    # eval_(test_dir)
