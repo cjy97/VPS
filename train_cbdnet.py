@@ -21,7 +21,7 @@ parser.add_argument('--epochs', default=20, type=int, help='sum of epochs')
 args = parser.parse_args()
 
 
-def train(train_loader, model, criterion, optimizer):
+def train_one_epoch(train_loader, model, criterion, optimizer):
 	losses = AverageMeter()
 	model.train()
 
@@ -51,9 +51,9 @@ def train(train_loader, model, criterion, optimizer):
 	return losses.avg
 
 
-if __name__ == '__main__':
+def train_():
 	save_dir = './save_model/'
-
+    
 	model = Network()
 	model.cuda()
 	model = nn.DataParallel(model)
@@ -85,7 +85,7 @@ if __name__ == '__main__':
 
 	for epoch in range(cur_epoch, args.epochs + 1):
 		print("epoch: ", epoch)
-		loss = train(train_loader, model, criterion, optimizer)
+		loss = train_one_epoch(train_loader, model, criterion, optimizer)
 		scheduler.step()
 
 		torch.save({
@@ -102,3 +102,7 @@ if __name__ == '__main__':
 			epoch,
 			lr=optimizer.param_groups[-1]['lr'],
 			loss=loss))
+
+
+if __name__ == '__main__':
+	train_()

@@ -93,7 +93,9 @@ if __name__ == '__main__':
     src_image = src_image[:,:,np.newaxis]
     print(src_image.shape)
 
+    # 将特大图像切分成一对一的小patch
     fixed_crop_pic(src_image, "Dataset/1G_img/patches", 320, "src")
     fixed_crop_pic(noise_image, "Dataset/1G_img/patches", 320, "noise")
     
+    # 随机从patch划分出训练、测试集
     sample_testdata("Dataset/1G_img/patches", "Dataset/1G_img/patches_test", 1000)
