@@ -2,8 +2,10 @@
 Dataset/
 
 # model files
-save_model/
-my_models/
+save_models/
+src_imgs/
+noise_imgs/
+denoise_imgs/
 
 __pycache__/
 model/__pycache__/

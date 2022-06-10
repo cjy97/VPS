@@ -49,8 +49,8 @@ class FCN(nn.Module):
     def __init__(self):
         super(FCN, self).__init__()
         self.fcn = nn.Sequential(
-            # nn.Conv2d(3, 32, 3, padding=1),
-            nn.Conv2d(1, 32, 3, padding=1), # 网络输入维度改为1
+            nn.Conv2d(3, 32, 3, padding=1),
+            # nn.Conv2d(1, 32, 3, padding=1), # 网络输入维度改为1
             nn.ReLU(inplace=True),
             nn.Conv2d(32, 32, 3, padding=1),
             nn.ReLU(inplace=True),
@@ -58,8 +58,8 @@ class FCN(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(32, 32, 3, padding=1),
             nn.ReLU(inplace=True),
-            # nn.Conv2d(32, 3, 3, padding=1),
-            nn.Conv2d(32, 1, 3, padding=1), # 网络输出维度也改为1
+            nn.Conv2d(32, 3, 3, padding=1),
+            # nn.Conv2d(32, 1, 3, padding=1), # 网络输出维度也改为1
             nn.ReLU(inplace=True)
         )
     
@@ -72,8 +72,8 @@ class UNet(nn.Module):
         super(UNet, self).__init__()
         
         self.inc = nn.Sequential(
-            # single_conv(6, 64),
-            single_conv(2, 64), # Unet输入维度改为1+1=2
+            single_conv(6, 64),
+            # single_conv(2, 64), # Unet输入维度改为1+1=2
             single_conv(64, 64)
         )
 
@@ -107,8 +107,8 @@ class UNet(nn.Module):
             single_conv(64, 64)
         )
 
-        # self.outc = outconv(64, 3)
-        self.outc = outconv(64, 1)
+        self.outc = outconv(64, 3)
+        # self.outc = outconv(64, 1)
 
     def forward(self, x):
         inx = self.inc(x)

@@ -10,7 +10,7 @@ import cv2
 
 from utils import read_img, chw_to_hwc, hwc_to_chw
 from model.dncnn import DnCNN
-from dataset.loader import My_Dataset
+from data.loader import My_Dataset
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 

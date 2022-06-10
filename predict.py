@@ -3,10 +3,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 import argparse
+import math
 import cv2
+import argparse
 
 from model.cbdnet import Network
 from model.dncnn import DnCNN
+from model.ridnet import RIDNET
 from utils import read_img, chw_to_hwc, hwc_to_chw
 
 from read_bmp import ReadBMPFile
@@ -20,29 +23,39 @@ from SN import psnr
 import random
 import torch.nn.functional as F
 
-os.environ["CUDA_VISIBLE_DEVICES"] = '3'
+os.environ["CUDA_VISIBLE_DEVICES"] = '2'
 
-def load_model(model_type):
-    save_dir = './save_model/'  # 预训练模型保存路径
+def load_model(opt):
+    save_dir   = opt.save_dir  # 预训练模型保存路径
+    model_type = opt.model_type
+
+    print("model_type: ", model_type)
 
     if model_type == "CBDNet":
         model = Network()
     elif model_type == "DnCNN":
-        model = DnCNN(channels=1, num_of_layers = 20)
+        model = DnCNN(channels=1, num_of_layers = 17)
+    elif model_type == "RIDNET":
+        model = RIDNET()
 
 
     model.cuda()
-    model = nn.DataParallel(model)
+    # model = nn.DataParallel(model)
 
     model.eval()
 
     # load existing model
     if model_type == "CBDNet":
-        model_info = torch.load(os.path.join(save_dir, 'checkpoint3.pth.tar'))
-        model.load_state_dict(model_info['state_dict'])
+        model_info = torch.load(os.path.join(save_dir, 'cbdnet.pth.tar'))
+        model_info = { k.replace("module.", ""):v for k, v in model_info['state_dict'].items() }
+        model.load_state_dict(model_info)
     elif model_type == "DnCNN":
-        model_info = torch.load(os.path.join(save_dir, 'my_DnCNN.pth.tar'))
-        model.load_state_dict(model_info['state_dict'])
+        model_info = torch.load(os.path.join(save_dir, 'DnCNN-S-25.pth'))
+        model_info = { k.replace("module.", ""):v for k, v in model_info.items() }
+        model.load_state_dict(model_info)
+    elif model_type == "RIDNET":
+        model_info = torch.load(os.path.join(save_dir, 'ridnet.pt'))
+        model.load_state_dict(model_info)
 
     return model
 
@@ -52,6 +65,8 @@ def predict_(model, input_var, model_type):
     elif model_type == "DnCNN":
         noise_var = model(input_var)
         output = torch.clamp(input_var - noise_var, 0., 1.)
+    elif model_type == "RIDNET":
+        output = model(input_var)
 
     return output
 
@@ -92,7 +107,7 @@ def predict(test_dir, model_type):
         cv2.imwrite(os.path.join(test_dir, file.replace("noise", "denoise")), output_image)
 
 
-# 用于在CBDNEt输出图像上进一步去除黑色噪点
+# 用于在输出图像上进一步去除黑色噪点
 def denoise_black_points(test_dir):
 
     num = 0
@@ -290,27 +305,40 @@ def denoise_1G_img():
     cv2.imwrite(os.path.join("Dataset/1G_img/", "crop_scaleAbs.bmp"), cv2.resize(denoise_img, (320,320)))
 
 # 将1G特大分辨率图像分块，分别通过深度模型降噪
-def crop_denoise_1G_img(noise_path, src_path, patch_size, model_type):
+def crop_denoise_1G_img(noise_path, src_path, opt):
 
-    model = load_model(model_type)
+    model = load_model(opt)
 
+    print("noise_path: ", noise_path)
     noise_image = Image.open(noise_path)
     noise_image = np.array(noise_image)
-    noise_image = noise_image[:,:,np.newaxis]
-    noise_image = noise_image[:,:,::-1] / 255.0
-    noise_image = np.array(noise_image).astype('float32')
+    noise_image = noise_image[:,:,np.newaxis]   # [H, W, 1]
     print(noise_image.shape)
 
-    src_image = Image.open(src_path)
-    src_image = np.array(src_image)
-    src_image = src_image[:,:,np.newaxis]
-    src_image = src_image[:,:,::-1] / 255.0
-    src_image = np.array(src_image).astype('float32')
-    print(src_image.shape)
+    if opt.model_type == "CBDNet" or opt.model_type == "DnCNN":     # CBDNet和DnCNN的输入需要归一化到[0, 1]
+        noise_image = noise_image[:,:,::-1] / 255.0
+    else:
+        noise_image = noise_image[:,:,::-1]
+
+    if opt.model_type == "CBDNet" or opt.model_type == "RIDNET":    # CBDNet和RIDNET是三通道的模型，灰度图数据需要进行维度扩充
+        noise_image = np.array(noise_image).astype('float32')
+        noise_image = np.repeat(noise_image, 3, axis=2)
+    else:
+        noise_image = np.array(noise_image).astype('float32')
+    
+    print(noise_image.shape)
+
+    if src_path is not None:
+        src_image = Image.open(src_path)
+        src_image = np.array(src_image)
+        src_image = src_image[:,:,np.newaxis]
+        src_image = src_image[:,:,::-1] / 255.0
+        src_image = np.array(src_image).astype('float32')
+        print(src_image.shape)
 
     H, W, _ = noise_image.shape
-    Y = H // patch_size
-    X = W // patch_size
+    Y = math.ceil(H / opt.patch_size)
+    X = math.ceil(W / opt.patch_size)
     print("X, Y: ", X, Y)
 
     start = time.time()
@@ -320,15 +348,19 @@ def crop_denoise_1G_img(noise_path, src_path, patch_size, model_type):
         col = []
         for x in range(X):
             print("x: ", x, "   y:", y)
-            patch = noise_image[y*patch_size:min((y+1)*patch_size, H), x*patch_size:min((x+1)*patch_size, W), :]
+            patch = noise_image[y*opt.patch_size:min((y+1)*opt.patch_size, H), x*opt.patch_size:min((x+1)*opt.patch_size, W), :]
             print("patch: ", patch.shape)
             patch_var = torch.from_numpy(hwc_to_chw(patch)).unsqueeze(0).cuda()
 
             with torch.no_grad():
-                output = predict_(model, patch_var, model_type)
+                output = predict_(model, patch_var, opt.model_type)
 
             patch = chw_to_hwc(output[0,...].cpu().numpy())
-            patch = np.uint8(np.round(np.clip(patch, 0, 1) * 255.))[: ,: ,::-1]
+            
+            if opt.model_type == "RIDNET":
+                patch = np.uint8(np.round(np.clip(patch, 0, 255)))[: ,: ,::-1]
+            else:
+                patch = np.uint8(np.round(np.clip(patch, 0, 1) * 255.))[: ,: ,::-1]
 
             col.append(patch)
         
@@ -336,63 +368,73 @@ def crop_denoise_1G_img(noise_path, src_path, patch_size, model_type):
         row.append(col)
     
     denoise_img = np.concatenate(row, axis=0)
+    
+    if opt.model_type == "CBDNet" or opt.model_type == "RIDNET":
+        denoise_img = np.uint8(np.mean(denoise_img, axis=2) )   # 恢复为单通道灰度图
+        denoise_img = denoise_img.reshape( (H, W, 1) )
     print("denoise_img: ", denoise_img.shape)
 
     end = time.time()
     print("Processing time: {}s".format(end-start))
 
-    cv2.imwrite("./Dataset/1G_img/crop_denoise.bmp", denoise_img)
+    # print(os.path.join(opt.denoise_dir, opt.model_type+ "_denoise_"+noise_path.split('/')[1]))
+    cv2.imwrite(os.path.join(opt.denoise_dir, opt.model_type+ "_denoise_"+noise_path.split('/')[1]), denoise_img)
 
-    src_image = np.uint8(np.round(np.clip(src_image, 0, 1) * 255.))[: ,: ,::-1]
-    noise_image = np.uint8(np.round(np.clip(noise_image, 0, 1) * 255.))[: ,: ,::-1]
+    if src_path is not None:
+        src_image = np.uint8(np.round(np.clip(src_image, 0, 1) * 255.))[: ,: ,::-1]
+        noise_image = np.uint8(np.round(np.clip(noise_image, 0, 1) * 255.))[: ,: ,::-1]
 
-    PSNR1 = psnr(src_image, noise_image)
-    PSNR2 = psnr(src_image, denoise_img)
-    print("before denoising: ", PSNR1, "       After denoising: ", PSNR2)
+        PSNR1 = psnr(src_image, noise_image)
+        PSNR2 = psnr(src_image, denoise_img)
+        print("before denoising: ", PSNR1, "       After denoising: ", PSNR2)
     
 
+# 边缘提取+增强
+def edge_enhance(img_path):
+    noise_image = Image.open(img_path)
+    noise_image = np.array(noise_image)
+    noise_image = noise_image[:,:,np.newaxis]
+    noise_image = noise_image[:,:,::-1]
+
+    # noise_image = noise_image.squeeze(2)
+    
+    print("noise_image: ", noise_image.shape)
+    x = cv2.Sobel(noise_image, -1, 1, 0, ksize=3)
+    y = cv2.Sobel(noise_image, -1, 0, 1, ksize=3)
+
+    gray_x = cv2.convertScaleAbs(x)
+    gray_y = cv2.convertScaleAbs(y)
+
+    sobel_grad = cv2.addWeighted(gray_x, 0.5, gray_y, 0.5, 0)
+    # print( np.sum(np.where(sobel_grad, 0, 1)) )
+    # print(sobel_grad[25000])
+    # print(sobel_grad[10000])
+
+    sobel_grad = sobel_grad[:,:,np.newaxis]
+    print("sobel_grad: ", sobel_grad.shape)
+
+    dst_image = noise_image - sobel_grad * 5
+
+    print(os.path.join("dst_img", "dst_"+img_path.split('/')[1]))
+    cv2.imwrite(os.path.join("dst_img", "dst_"+img_path.split('/')[1]), dst_image)
+
+
 if __name__ == '__main__':
-    # test_dir = "Dataset/1G_img/patches_test/"
-    # predict(test_dir, model_type="DnCNN")   # 调用CBDNet模型，对测试目录下的noise图像进行降噪，将所得denoise图像保存在同目录下
-    # denoise_black_points(test_dir)
-    # cal_psnr(test_dir)  # 对测试数据，计算降噪前后的平均psnr指标
-    # random_crop_test(patch_size=3200, times=100, model_type="DnCNN")    # 在.246服务器上（1080ti，单卡11G显存），CBDNet单次能处理的图像尺寸上限约2000^2
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--noise_dir", type=str, default="noise_imgs/")
+    parser.add_argument("--src_dir", type=str, default="src_imgs/")
+    parser.add_argument("--denoise_dir", type=str, default="denoise_imgs/")
+    parser.add_argument("--save_dir", type=str, default="save_models/")
+    
+    parser.add_argument("--patch_size", type=int, default=2000)
+    parser.add_argument("--model_type", type=str, default="RIDNET", choices=['CBDNet', 'DnCNN', 'RIDNET'])
 
-    # denoise_1G_img()
-    crop_denoise_1G_img(noise_path="./Dataset/1G_img/500ms曝光.bmp", src_path="./Dataset/1G_img/100ms曝光.bmp", patch_size=4000, model_type="DnCNN")
-
-    # denoise_path = os.path.join(test_dir, "denoise_0_18.bmp")
-    # denoise_img = Image.open(denoise_path)
-    # denoise_img = np.array(denoise_img)
-    # denoise_img = denoise_img[:,:,np.newaxis]
-
-    # median_img = cv2.medianBlur(denoise_img, 5) # 对初步降噪图像运行中值滤波
-    # _, mask = cv2.threshold(denoise_img, 100, 255, cv2.THRESH_BINARY_INV)    # 将初步降噪图像灰度阈值分割，得到掩模
-    # points = cv2.add(median_img, 0, mask=mask)  # 用掩模作用于中值滤波后图像，提取出噪点位置对应的滤波后像素
-    # _, denoise_img = cv2.threshold(denoise_img, 100, 0, cv2.THRESH_TOZERO)   # 将初步降噪图像中灰度低于阈值的点置零
-    # denoise_img = cv2.add(denoise_img, points, mask=None)   # 把掩模提取出的滤波后像素填充到对应位置上
-
-    # _, mask = cv2.threshold(denoise_img, 120, 255, cv2.THRESH_BINARY)
-    # cv2.imwrite("mask.bmp", mask)
-    # points = cv2.add(median_img, 0, mask=mask)
-    # _, denoise_img = cv2.threshold(denoise_img, 120, 0, cv2.THRESH_TOZERO_INV)
-    # denoise_img = cv2.add(denoise_img, points, mask=None)
-
-    # # denoise_img = cv2.fastNlMeansDenoising(denoise_img, None, 3, 3, 7, 21)
-
-    # cv2.imwrite("denoise_black_white.bmp", denoise_img)
+    opt = parser.parse_args()
 
 
-
-    # src_light = cv2.imread("Dataset/1G_img/patches/src_25_25.bmp", cv2.IMREAD_GRAYSCALE)
-    # src_dark = cv2.imread("Dataset/1G_img/patches/src_40_40.bmp", cv2.IMREAD_GRAYSCALE)
-    # noise_light = cv2.imread("Dataset/1G_img/patches/noise_25_25.bmp", cv2.IMREAD_GRAYSCALE)
-    # noise_dark = cv2.imread("Dataset/1G_img/patches/noise_40_40.bmp", cv2.IMREAD_GRAYSCALE)
+    for file in os.listdir(opt.noise_dir):
+        crop_denoise_1G_img(noise_path=os.path.join(opt.noise_dir , file), src_path=None, opt = opt)
 
 
-    # print("src_light: ", np.mean(src_light))
-    # print("src_dark: ", np.mean(src_dark))
-    # print("noise_light: ", np.mean(noise_light))
-    # print("noise_dark: ", np.mean(noise_dark))
 
 # python predict.py CBSD68-dataset/noisy50 denoise

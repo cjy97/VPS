@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from utils import AverageMeter
-from dataset.loader import Real, Syn, My_Dataset
+from data.loader import Real, Syn, My_Dataset
 from model.cbdnet import Network, fixed_loss
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "2, 3"
