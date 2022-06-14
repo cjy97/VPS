@@ -18,7 +18,7 @@ def snr(img1, img2):
     return 10 * math.log10(S / MSE)
 
 def psnr(img1, img2):
-    img1 = np.float64(img1)
+    img1 = np.float64(img1) # 为避免溢出错误，需要将数值类型从uint8转成float
     img2 = np.float64(img2)
 
     # h, w, _ = img1.shape

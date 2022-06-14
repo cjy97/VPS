@@ -48,7 +48,7 @@ class ListAverageMeter(object):
 def read_img(filename):
 	img = cv2.imread(filename)
 	img = img[:,:,::-1] / 255.0
-		
+	
 	img = np.array(img).astype('float32')
 
 	return img

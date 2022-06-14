@@ -2,5 +2,14 @@
 Dataset/
 
 # model files
-save_model/
+save_models/
+src_imgs/
+noise_imgs/
+denoise_imgs/
 
+__pycache__/
+model/__pycache__/
+utils/__pycache__/
+
+*.pyc
+*.png
